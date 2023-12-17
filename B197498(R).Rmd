@@ -1,0 +1,340 @@
+---
+title: "D2"
+author: "B197498"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Big Data Project
+
+### Setup
+```{r Setup, include=F}
+### Load all my required packages
+library(tidyverse) # data transformation and presentation
+library(tidytext) # for handling text data
+library(sjPlot) # for plots
+library(glmnet) # for glms
+library(stargazer) #stargazer
+library(patchwork) # for patching my work together
+library(performance) # to assess model performance
+library(kableExtra) # for nice tables
+library(caret) # for cross validation
+library(Metrics) # for RMSE
+```
+
+### Data loading
+```{r data}
+### here I'm going to take my full data and get a sample of 100k from it
+## COVID
+# covid posts
+rawcovidpost <- read.csv("C:\\Users\\Brandon\\OneDrive - University of Edinburgh\\3rd Year\\Big data\\Project\\Data\\covid\\the-reddit-covid-dataset-posts.csv")
+
+## covid comments
+rawcovidcom <- read.csv("C:\\Users\\Brandon\\OneDrive - University of Edinburgh\\3rd Year\\Big data\\Project\\Data\\covid\\the-reddit-covid-dataset-comments.csv")
+
+# bind both of them together
+
+rawcovidall <- bind_rows(rawcovidcom, rawcovidpost)
+
+## Climate change
+
+# climate posts
+rawclimposts <- read.csv("C:\\Users\\Brandon\\OneDrive - University of Edinburgh\\3rd Year\\Big data\\Project\\Data\\c change\\the-reddit-climate-change-dataset-posts.csv")
+
+
+# climate comments
+rawclimcoms <- read.csv("C:\\Users\\Brandon\\OneDrive - University of Edinburgh\\3rd Year\\Big data\\Project\\Data\\c change\\the-reddit-climate-change-dataset-comments.csv")
+
+# bind them together
+rawclimall <- bind_rows(rawclimposts, rawclimcoms)
+
+## Take a sample of 100k from each
+# COVID
+
+rawcovid100 <- rawcovidall %>%
+  sample_n(size = 100000, replace = FALSE) %>%
+  group_by()
+
+# Climate change
+rawclim100 <- rawclimall %>%
+  sample_n(size = 100000, replace = FALSE) %>%
+  group_by()
+
+### save the sampled df's as a csv for future time savings
+# covid
+write.csv(rawcovid100, "C:\\Users\\Brandon\\OneDrive - University of Edinburgh\\3rd Year\\Big data\\Project\\Data\\covid\\covid100k.csv", row.names = FALSE)
+
+# climate change
+write.csv(rawclim100, "C:\\Users\\Brandon\\OneDrive - University of Edinburgh\\3rd Year\\Big data\\Project\\Data\\c change\\climate100k.csv", row.names = FALSE)
+
+
+### read in my data
+cleancovid100 <- read.csv("C:\\Users\\Brandon\\OneDrive - University of Edinburgh\\3rd Year\\Big data\\Project\\Data\\covid\\covid100k.csv")
+
+cleanclim100 <- read.csv("C:\\Users\\Brandon\\OneDrive - University of Edinburgh\\3rd Year\\Big data\\Project\\Data\\c change\\climate100k.csv")
+```
+
+```{r column removal}
+## Filter unneccesary columns
+# covid
+covidcolumns <- c("subreddit.name", "score", "title", "body", "type")
+
+cleancovid100 <- cleancovid100 %>%
+  select(all_of(covidcolumns))
+
+# climate
+climatecolumns <- c("subreddit.name", "score", "title", "body", "type")
+
+cleanclim100 <- cleanclim100 %>%
+  select(all_of(climatecolumns))
+
+```
+
+
+### Unnesting
+```{r Unnesting}
+### Unnest the words from each dataset
+## unnest tokens
+# COVID
+covwords <- cleancovid100 %>%
+  unnest_tokens(word,body)
+
+covwords <- cleancovid100 %>%
+  unnest_tokens(word,title)
+
+# Climate change
+climwords <- cleanclim100 %>%
+  unnest_tokens(word,body)
+
+climwords <- cleanclim100 %>%
+  unnest_tokens(word,title)
+
+### stop the stop words 
+# Covid
+covwords <- covwords %>%
+  anti_join(stop_words)
+# Climate
+climwords <- climwords %>%
+  anti_join(stop_words)
+
+
+
+```
+
+## Bing analysis
+```{r}
+##bing analysis 
+# perform sentiment analysis using the Bing lexicon
+#covid
+covwords_sentiment <- covwords %>%
+  inner_join(get_sentiments("bing"))
+
+#climate
+climwords_sentiment <- climwords %>%
+  inner_join(get_sentiments("bing"))
+
+```
+
+### Decscriptive stats
+```{r descriptive stats}
+### create a table of descriptive stats
+# covid
+t1 <- covwords_sentiment %>%
+            group_by(sentiment) %>%
+            summarise(M = mean(score),
+                      SD = sd(score),
+                      Min = min (score),
+                      Max = max (score),
+                      Total = n()) %>%
+  kable( digits = 2) %>%
+  kable_classic() %>%
+  kable_styling(font_size = 20, bootstrap_options = "condensed")
+t1
+
+# climate
+t2 <- climwords_sentiment %>%
+            group_by(sentiment) %>%
+            summarise(M = mean(score),
+                      SD = sd(score),
+                      Min = min (score),
+                      Max = max (score),
+                      Total = n()) %>%
+  kable(digits = 2) %>%
+  kable_classic() %>%
+  kable_styling(font_size = 20)
+t2
+```
+
+
+
+
+### Plot sentiments
+```{r sentiment plots}
+## plot top 10 words and their sentiments
+# covid
+top_covid <- covwords_sentiment %>%
+  count(word, sentiment, sort = TRUE) %>%
+  group_by(sentiment) %>%
+  slice_max(order_by = n, n = 10) %>%
+  ungroup()
+
+
+p1 <- ggplot(top_covid, aes(x = reorder(word, n), y = n, fill = sentiment)) +
+  geom_col() +
+  facet_wrap(~sentiment, scales = "free_y", ncol = 2) +
+  coord_flip() +
+  labs(title = "Top 10 Words by Sentiment (COVID-19)", x = "Word", y = "Count") +
+  theme_minimal()
+
+# climate change
+top_climate <- climwords_sentiment %>%
+  count(word, sentiment, sort = TRUE) %>%
+  group_by(sentiment) %>%
+  slice_max(order_by = n, n = 10) %>%
+  ungroup()
+
+
+p2 <- ggplot(top_climate, aes(x = reorder(word, n), y = n, fill = sentiment)) +
+  geom_col() +
+  facet_wrap(~sentiment, scales = "free_y", ncol = 2) +
+  coord_flip() +
+  labs(title = "Top 10 Words by Sentiment (Climate Change)", x = "Word", y = "Count") +
+  theme_minimal() 
+
+p1 
+
+p2
+```
+
+
+### Model Building
+```{r }
+### model building
+
+## make one object
+allwords <- bind_rows(
+  mutate(covwords_sentiment, Dataset = "covwords"),
+  mutate(climwords_sentiment, Dataset = "climwords"))
+
+# state formulae
+formula1 <- score ~ sentiment * Dataset 
+
+formula2 <- score ~ sentiment + Dataset
+
+## model building
+# fit the models either with or without the interaction
+mdl1 <- glm(formula1, data = allwords, family = "gaussian")
+
+mdl2 <- glm(formula2, data = allwords, family = "gaussian")
+
+```
+
+### plot model
+```{r plot model, warning=F}
+## 
+t1 <- tab_model(mdl1)
+t1
+
+
+```
+
+## Assumptions
+```{r assumptions}
+## check assumptions for the model
+performance::check_model(mdl1)
+
+```
+
+
+## X validation
+```{r X validation}
+### run as chunk DO NOT knit ####
+## cross validation
+
+# set seeds
+set.seed(111)
+
+# Create train/test split (80/20)
+index <- createDataPartition(y = allwords$sentiment, p = 0.8, list = FALSE)
+
+# times of repitition 
+num_iterations <- 5  # Adjust as needed
+
+# create an object to store rmse values
+rmse_values <- numeric(num_iterations)
+
+# build X validation
+for (i in 1:num_iterations) {
+  
+  # create train/test sets
+  train_data <- allwords[index, ]
+  test_data <- allwords[-index, ]
+  
+  # calculate RMSE
+  rmse_values[i] <- rmse(predictions, test_data$score)
+  
+  # print RMSE
+  cat("Iteration:", i, "RMSE:", rmse_values[i], "\n")
+  
+  
+ 
+  # state mdl
+  mdl1 <- glm(score ~ sentiment * Dataset, data = train_data)
+  
+  # predict
+  predictions <- predict(mdl1, newdata = test_data)
+  
+  
+  # print results
+  cat("Iteration:", i, "\n")
+  
+  
+}
+
+```
+## X validation II
+```{r X validation II}
+
+#### run as chunk DO NOT knit ####
+
+## Do the same for the more parsimonious model
+
+# Create train/test split (80/20)
+index <- createDataPartition(y = allwords$sentiment, p = 0.8, list = FALSE)
+
+# put in counter
+num_iterations <- 5  
+
+# create an object to store rmse values
+rmse_values <- numeric(num_iterations)
+
+# Create a loop for repeated cross-validation
+for (i in 1:num_iterations) {
+  
+  # Create train/test sets
+  train_data <- allwords[index, ]
+  test_data <- allwords[-index, ]
+  
+  # Calculate RMSE
+ rmse_values[i] <- rmse(predictions, test_data$score)
+  
+  # print rmse
+  cat("Iteration:", i, "RMSE:", rmse_values[i], "\n")
+  
+  
+  # state mdl
+  mdl2 <- glm(score ~ sentiment + Dataset, data = train_data)
+  
+  # preduict
+  predictions <- predict(mdl2, newdata = test_data)
+  
+  # print results
+  cat("Iteration:", i, "\n")
+  
+  
+}
+
+```
